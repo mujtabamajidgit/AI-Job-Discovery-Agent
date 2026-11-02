@@ -1,0 +1,813 @@
+{
+  "name": "AI Job Discovery & Application Assistant",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "AI Job Finder",
+        "formDescription": "Type a job title and get a scored list of matching remote jobs by email.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Job Title",
+              "placeholder": "AI automation intern",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Minimum Score",
+              "fieldType": "number",
+              "placeholder": "70",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Your Email",
+              "fieldType": "email",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "10fa969a-f80c-4ee3-9ac3-d805626b77af",
+      "name": "Job Search Form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        -560,
+        32
+      ],
+      "webhookId": "f624dad8-8fe9-4f4d-a634-43e786539323"
+    },
+    {
+      "parameters": {
+        "jsCode": "const f = $input.first().json;\nconst jobTitle = String(f['Job Title'] || '').trim();\nconst minScore = Number(f['Minimum Score']);\nconst email = String(f['Your Email'] || '').trim();\nlet error = '';\nif (jobTitle.length < 3) error = 'Job title is too short.';\nelse if (!(minScore >= 0 && minScore <= 100)) error = 'Minimum score must be a number from 0 to 100.';\nelse if (!/^\\S+@\\S+\\.\\S+$/.test(email)) error = 'Email address is not valid.';\nreturn [{ json: { ok: error === '', error, jobTitle, minScore, email } }];"
+      },
+      "id": "4623c973-183a-45f0-b695-4f72aaa07e23",
+      "name": "Parse & Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -336,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.ok }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "f2146f93-a6f7-4896-97c7-1d7f80147835",
+      "name": "Input Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -128,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "errorMessage": "={{ $json.error }}"
+      },
+      "id": "1fa6872a-1a7a-4311-987f-9b62c3d40a1c",
+      "name": "Stop - Invalid Input",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        112,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nconst searchUrl = 'https://remotive.com/api/remote-jobs?limit=40&search=' + encodeURIComponent(j.jobTitle);\nreturn [{ json: { ...j, searchUrl } }];"
+      },
+      "id": "a3f90f35-ed9b-47d1-bb7e-220cd9d7bcb3",
+      "name": "Build Search Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        112,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.searchUrl }}",
+        "options": {}
+      },
+      "id": "0fd2bb89-515c-4c2c-ae84-dc8018de02c4",
+      "name": "Fetch Jobs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        320,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('Parse & Validate Input').first().json;\nconst jobs = $input.first().json.jobs || [];\nconst clean = (h) => String(h || '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;|&amp;|&#?\\w+;/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 1500);\nreturn jobs.map(j => ({ json: {\n  jobId: j.id, title: j.title || '', company: j.company_name || '', location: j.candidate_required_location || 'Not stated',\n  jobType: j.job_type || '', salary: j.salary || '', url: j.url || '', published: (j.publication_date || '').slice(0, 10),\n  description: clean(j.description), minScore: ctx.minScore, email: ctx.email, jobTitle: ctx.jobTitle } }));"
+      },
+      "id": "24b047eb-f2f2-4bc7-8949-7590f06d02f9",
+      "name": "Normalize Jobs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        544,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const seen = new Set();\nconst blocked = /\\b(senior|sr\\.?|lead|principal|head|director|vp|staff|manager|architect)\\b/i;\nconst out = [];\nfor (const it of $input.all()) {\n  const j = it.json;\n  if (!j.url || seen.has(j.url)) continue;\n  seen.add(j.url);\n  if (blocked.test(j.title)) continue;\n  out.push({ json: j });\n}\nreturn out.length ? out : [{ json: { _empty: true } }];"
+      },
+      "id": "0abce7eb-37ad-4192-b636-37acd37917b7",
+      "name": "Dedupe & Hard Filters",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        768,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ !$json._empty }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "cc6875df-4162-4cf7-8db6-1d4d6aa33bac",
+      "name": "Any Jobs?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        992,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "documentId": {
+          "__rl": true,
+          "mode": "url",
+          "value": ""
+        }
+      },
+      "id": "90bd9f39-97e2-4b6a-ba56-0a6d24fa34be",
+      "name": "Read Existing Jobs",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1200,
+        32
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const tracked = new Set($input.all().map(i => i.json.URL).filter(Boolean));\nconst jobs = $('Any Jobs?').all().map(i => i.json).filter(j => !tracked.has(j.url));\nreturn jobs.length ? jobs.map(json => ({ json })) : [{ json: { _empty: true } }];"
+      },
+      "id": "e83b05dc-5749-4e2a-aa38-b7a63d574373",
+      "name": "Remove Already Tracked",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1424,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ !$json._empty }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "09aabeed-2a80-4c83-9e52-cbcbe78daf0c",
+      "name": "Any New Jobs?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1648,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Parse & Validate Input').first().json.email }}",
+        "subject": "AI Job Finder: no new jobs found",
+        "emailType": "text",
+        "message": "No new matching jobs were found this time. Try a different job title.",
+        "options": {}
+      },
+      "id": "fbcb4349-d1bf-4f00-a9d9-07998df67780",
+      "name": "Notify No Results",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1648,
+        256
+      ],
+      "executeOnce": true,
+      "webhookId": "f9aaf505-28d2-4059-9050-b18974f54f2a"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "745bc597-a431-4d1c-af82-6450012d60ce",
+      "name": "Loop Over Jobs",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1872,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const job = $input.first().json;\nconst PROFILE = \"Mujtaba Majid Baig. BS Software Engineering student in Karachi (graduating 2027). Builds AI automation workflows with n8n: AI agents (Gemini, Groq), Google Sheets, Airtable, Gmail, HTTP requests, forms, schedules. Six projects: lead qualification, restaurant support agent, medical store inventory, car showroom agent, website monitor, auto email reply. 3+ years B2B sales and international business development. Basic Python, HTML, CSS, Git. Looking for junior or internship roles, remote.\";\nconst prompt = 'You are a careful job-matching assistant. Compare the candidate to the job. Score from 0 to 100 how well the candidate fits an entry-level application. Be honest, do not invent skills.\\n\\nCANDIDATE:\\n' + PROFILE +\n '\\n\\nJOB:\\nTitle: ' + job.title + '\\nCompany: ' + job.company + '\\nLocation: ' + job.location + '\\nType: ' + job.jobType + '\\nDescription: ' + job.description +\n '\\n\\nReturn ONLY JSON with keys: score (number 0-100), reason (one short sentence), applyAngle (one short sentence: which of the candidate projects to mention).';\nconst aiBody = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0.2 } };\nreturn [{ json: { ...job, aiBody } }];"
+      },
+      "id": "c1f3bc90-fef7-45ab-a21e-92daedf06ce3",
+      "name": "Build AI Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-goog-api-key",
+              "value": "PASTE_YOUR_GEMINI_API_KEY_HERE"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.aiBody) }}",
+        "options": {}
+      },
+      "id": "20d4064a-98ef-4f37-89c7-ecd0d13fe54e",
+      "name": "AI Match & Score",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2304,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const job = { ...$('Build AI Request').item.json };\ndelete job.aiBody;\nlet result = { aiOk: false, score: 0, reason: '', applyAngle: '' };\ntry {\n  const text = $json.candidates[0].content.parts[0].text;\n  const p = JSON.parse(text);\n  const score = Number(p.score);\n  if (score >= 0 && score <= 100) result = { aiOk: true, score, reason: String(p.reason || ''), applyAngle: String(p.applyAngle || '') };\n} catch (e) { result.reason = 'AI answer could not be read'; }\nreturn [{ json: { ...job, ...result } }];"
+      },
+      "id": "34e9b2c4-e3d8-4a5a-9ace-a0fb99b786ea",
+      "name": "Validate AI Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2528,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.aiOk }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "9e49538d-eb62-4597-9613-1bcb00aef0a5",
+      "name": "AI Output Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        2752,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.score }}",
+              "operation": "largerEqual",
+              "value2": "={{ $json.minScore }}"
+            }
+          ]
+        }
+      },
+      "id": "6faa28c1-4fd8-47af-9ecd-6bc7e49c57ec",
+      "name": "Meets Minimum Score?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        2960,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "4ff92827-0be8-4017-8570-1b6cceca14d2",
+              "name": "status",
+              "value": "Shortlisted",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "40f96ac1-ce5a-441e-b407-be31c9d0557c",
+      "name": "Mark Shortlisted",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3184,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "6ccb257c-5457-4e08-a20b-98d5617bac59",
+              "name": "status",
+              "value": "Below threshold",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "b0ea1313-0c66-46de-bb5f-c7ebacbe34fb",
+      "name": "Mark Below Threshold",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3184,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1336efb0-e6de-4bea-8672-907f0ebc4e0d",
+              "name": "status",
+              "value": "AI error",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "e4af586b-5442-4824-9ee6-7a8d1cfebeeb",
+      "name": "Mark AI Error",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2960,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nreturn [{ json: {\n  'Date': new Date().toISOString().slice(0, 10), 'Job Title': j.title, 'Company': j.company, 'Location': j.location, 'Type': j.jobType,\n  'Salary': j.salary, 'URL': j.url, 'Score': j.score, 'Status': j.status, 'Reason': j.reason, 'Apply Angle': j.applyAngle, 'Published': j.published } }];"
+      },
+      "id": "18ee1825-c93a-4c6b-b0f9-3c7a7a867118",
+      "name": "Prepare Tracker Row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3408,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "url",
+          "value": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Tracker"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "054ba9e2-5c80-465e-a76e-7c38eed476a8",
+      "name": "Save to Tracker",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        3632,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const email = $('Parse & Validate Input').first().json.email;\nconst rows = $input.all().map(i => i.json);\nconst top = rows.filter(r => r.Status === 'Shortlisted').sort((a, b) => Number(b.Score) - Number(a.Score));\nconst esc = s => String(s || '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));\nlet html = '<h2>Your AI Job Finder results</h2><p>New jobs checked: ' + rows.length + '. Shortlisted: ' + top.length + '.</p>';\nif (!top.length) html += '<p>No job reached your minimum score this time. All jobs are saved in your Tracker sheet.</p>';\nfor (const r of top) {\n  html += '<hr><h3>' + esc(r['Job Title']) + ' at ' + esc(r.Company) + ' (score ' + esc(r.Score) + ')</h3>' +\n   '<p>' + esc(r.Location) + ' | ' + esc(r.Type) + '</p><p><b>Why:</b> ' + esc(r.Reason) + '</p>' +\n   '<p><b>Mention:</b> ' + esc(r['Apply Angle']) + '</p><p><a href=\"' + esc(r.URL) + '\">Open job</a></p>';\n}\nhtml += '<hr><p>Please review each job yourself before you apply. Jobs by Remotive (remotive.com).</p>';\nreturn [{ json: { email, subject: 'AI Job Finder: ' + top.length + ' job(s) shortlisted', html } }];"
+      },
+      "id": "986aa960-8589-436f-864a-ae6694bd6cb2",
+      "name": "Build Review Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.email }}",
+        "subject": "={{ $json.subject }}",
+        "message": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "ee9f1bec-dc32-4036-96cc-a72aa0b1bf62",
+      "name": "Send Review Digest",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2304,
+        -96
+      ],
+      "webhookId": "e25c09de-3d08-48c8-98ba-0c1f550065dc"
+    },
+    {
+      "parameters": {
+        "content": "## Setup (3 things)\n1. Click each red Google Sheets and Gmail node and choose your credential.\n2. In both Sheets nodes choose your Google Sheet (tab named Tracker).\n3. In AI Match & Score paste your Gemini API key.\nThen click Execute workflow and fill the form.",
+        "height": 180,
+        "width": 380
+      },
+      "id": "fa3f32e0-c840-4bed-9c0b-f5ebf5b0678a",
+      "name": "Setup notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -560,
+        -208
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Job Search Form": {
+      "main": [
+        [
+          {
+            "node": "Parse & Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Input Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Input Valid?": {
+      "main": [
+        [
+          {
+            "node": "Build Search Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stop - Invalid Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Search Request": {
+      "main": [
+        [
+          {
+            "node": "Fetch Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Jobs": {
+      "main": [
+        [
+          {
+            "node": "Normalize Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Jobs": {
+      "main": [
+        [
+          {
+            "node": "Dedupe & Hard Filters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dedupe & Hard Filters": {
+      "main": [
+        [
+          {
+            "node": "Any Jobs?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any Jobs?": {
+      "main": [
+        [
+          {
+            "node": "Read Existing Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notify No Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Existing Jobs": {
+      "main": [
+        [
+          {
+            "node": "Remove Already Tracked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remove Already Tracked": {
+      "main": [
+        [
+          {
+            "node": "Any New Jobs?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any New Jobs?": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notify No Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Jobs": {
+      "main": [
+        [
+          {
+            "node": "Build Review Digest",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build AI Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build AI Request": {
+      "main": [
+        [
+          {
+            "node": "AI Match & Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Match & Score": {
+      "main": [
+        [
+          {
+            "node": "Validate AI Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate AI Output": {
+      "main": [
+        [
+          {
+            "node": "AI Output Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Output Valid?": {
+      "main": [
+        [
+          {
+            "node": "Meets Minimum Score?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark AI Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meets Minimum Score?": {
+      "main": [
+        [
+          {
+            "node": "Mark Shortlisted",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Below Threshold",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Shortlisted": {
+      "main": [
+        [
+          {
+            "node": "Prepare Tracker Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Below Threshold": {
+      "main": [
+        [
+          {
+            "node": "Prepare Tracker Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark AI Error": {
+      "main": [
+        [
+          {
+            "node": "Prepare Tracker Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Tracker Row": {
+      "main": [
+        [
+          {
+            "node": "Save to Tracker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Tracker": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Review Digest": {
+      "main": [
+        [
+          {
+            "node": "Send Review Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "0286d96f-1e67-4559-9b17-4fafe834a599",
+  "meta": {
+    "instanceId": "549e7004326de72a58d0d989ddecedf9fc9d3464c17ea80dda60f9bdff8dc26f"
+  },
+  "nodeGroups": [],
+  "id": "oU72lydkRkF84eA3",
+  "tags": []
+}
